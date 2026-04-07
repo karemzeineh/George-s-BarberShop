@@ -647,3 +647,19 @@ function exitOwner() { _ownerAuthed = false; navigate("auth"); }
 // ── Init ───────────────────────────────────────────────────
 state.page = getSession() ? "dashboard" : "auth";
 render();
+
+// ── EXPORT FUNCTIONS TO GLOBAL WINDOW (Because of type="module") ──
+window.switchAuth = switchAuth;
+window.handleAuth = handleAuth;
+window.navigate = navigate;
+window.handleSignOut = handleSignOut;
+window.cancelMyBooking = cancelMyBooking;
+window.handleDetails = handleDetails;
+window.confirmBooking = confirmBooking;
+window.loginOwner = loginOwner;
+window.ownerDelete = ownerDelete;
+window.ownerClearAll = ownerClearAll;
+window.adminDeleteAccount = adminDeleteAccount;
+window.wipeAllData = wipeAllData;
+window.exitOwner = exitOwner;
+window.updateSchedule = updateSchedule;
