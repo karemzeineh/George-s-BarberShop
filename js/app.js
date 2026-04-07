@@ -3,7 +3,8 @@
    ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+// Notice I added 'updateDoc' to this list!
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyCl9w7rVcbWsU8aDQtrfJY3LF7gRwGmN-0",
@@ -20,7 +21,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // 4. Local state to hold our cloud data
-const ACCOUNTS_KEY  = "barber_accounts"; // We will keep accounts local for now to keep it simple
+const ACCOUNTS_KEY  = "barber_accounts"; 
 const SESSION_KEY   = "barber_session";
 const SCHEDULE_KEY  = "barber_schedule";
 
@@ -36,7 +37,6 @@ const SERVICES = {
     "beard":   { name: "Beard Trim & Line up", price: 40 },
     "full":    { name: "The Works (Hair + Beard)", price: 100 }
 };
-
 
 const DEFAULT_SCHEDULE = {
     0: { open: false, start: "09:00", end: "18:00" },
@@ -79,13 +79,13 @@ function getAccounts() { try { return JSON.parse(localStorage.getItem(ACCOUNTS_K
 function getSession() { return localStorage.getItem(SESSION_KEY); }
 function setSession(phone) { localStorage.setItem(SESSION_KEY, phone); }
 function clearSession() { localStorage.removeItem(SESSION_KEY); }
+
 // Function to read the live bookings array we get from the cloud
 function getBookings() {
     return cloudBookings;
 }
 
 // THIS IS THE MAGIC: It listens to Firebase 24/7.
-// If anyone books, anywhere in the world, this updates your app instantly.
 onSnapshot(collection(db, "bookings"), (snapshot) => {
     cloudBookings = []; // Clear old data
     snapshot.forEach((doc) => {
@@ -230,9 +230,6 @@ function handleAuth() {
     if (!res.ok) return showToast(res.error, "error");
 
     showToast(`Successfully signed in!`);
-
-    // THIS LINE RIGHT HERE FIXES THE ISSUE!
-    // It routes them to the dashboard instead of forcing them to book.
     navigate("dashboard");
 }
 
@@ -288,13 +285,22 @@ function renderDashboard() {
     </div>`;
 }
 
-function cancelMyBooking(time) {
+// ── FIXED: Cancel Booking in Cloud ──
+async function cancelMyBooking(time) {
     if(!confirm("Are you sure you want to cancel this appointment?")) return;
-    let b = getBookings();
-    b = b.filter(x => x.time !== time);
-    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(b));
-    showToast("Appointment cancelled.");
-    render();
+    
+    // Find the exact booking ID from Firebase
+    const targetBooking = getBookings().find(x => x.time === time);
+    
+    if (targetBooking && targetBooking.id) {
+        try {
+            await deleteDoc(doc(db, "bookings", targetBooking.id));
+            showToast("Appointment cancelled.");
+        } catch (error) {
+            console.error(error);
+            showToast("Failed to cancel.", "error");
+        }
+    }
 }
 
 // ── Profile & Service Selection ────────────────────────────
@@ -336,7 +342,8 @@ function renderClientDetails() {
     </div>`;
 }
 
-function handleDetails(action) {
+// ── FIXED: Update Profile in Cloud ──
+async function handleDetails(action) {
     const n = document.getElementById("cd-name").value.trim();
     const a = document.getElementById("cd-age").value.trim();
     const s = document.getElementById("cd-service").value;
@@ -354,18 +361,19 @@ function handleDetails(action) {
         localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
     }
 
+    // Update ALL existing bookings for this user in Firebase so their name changes everywhere
     const bookings = getBookings();
-    let updated = false;
-    bookings.forEach(b => {
-        if(b.phone === phone) {
-            b.name = n;
-            b.age = a;
-            updated = true;
+    for (const b of bookings) {
+        if(b.phone === phone && b.id) {
+            try {
+                await updateDoc(doc(db, "bookings", b.id), {
+                    name: n,
+                    age: a
+                });
+            } catch (err) {
+                console.error(err);
+            }
         }
-    });
-
-    if (updated) {
-        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
     }
 
     showToast("Profile Saved!");
@@ -558,34 +566,62 @@ function loginOwner() {
     else showToast("Incorrect password", "error");
 }
 
-function ownerDelete(time) {
+// ── FIXED: Owner Delete Specific Booking in Cloud ──
+async function ownerDelete(time) {
     if(!confirm(`Remove appointment at ${time}?`)) return;
-    let b = getBookings();
-    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(b.filter(x => x.time !== time)));
-    showToast("Removed", "success");
-    render();
+    
+    const targetBooking = getBookings().find(x => x.time === time);
+    if (targetBooking && targetBooking.id) {
+        try {
+            await deleteDoc(doc(db, "bookings", targetBooking.id));
+            showToast("Removed", "success");
+        } catch(err) {
+            console.error(err);
+            showToast("Failed to remove.", "error");
+        }
+    }
 }
 
-function ownerClearAll() {
+// ── FIXED: Owner Clear All Bookings in Cloud ──
+async function ownerClearAll() {
     if(!confirm("DELETE ALL BOOKINGS? This cannot be undone.")) return;
-    localStorage.setItem(BOOKINGS_KEY, "[]");
+    
+    const bookings = getBookings();
+    for (const b of bookings) {
+        if (b.id) {
+            try {
+                await deleteDoc(doc(db, "bookings", b.id));
+            } catch(err) {
+                console.error("Failed to delete doc", err);
+            }
+        }
+    }
     showToast("Schedule Cleared");
-    render();
 }
 
-function adminDeleteAccount(phone) {
+// ── FIXED: Super Admin Delete Account & Cloud Bookings ──
+async function adminDeleteAccount(phone) {
     const adminAttempt = prompt("Enter Super Admin password to delete this account:");
     if (adminAttempt !== SUPER_ADMIN_PASS) return showToast("Incorrect admin password. Deletion canceled.", "error");
 
     if(!confirm(`Are you absolutely sure you want to delete the account and bookings for ${phone}?`)) return;
 
+    // 1. Delete the local account
     const accounts = getAccounts();
     delete accounts[phone];
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
 
-    let b = getBookings();
-    b = b.filter(x => x.phone !== phone);
-    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(b));
+    // 2. Delete all their bookings from Firebase
+    const bookings = getBookings();
+    for (const b of bookings) {
+        if (b.phone === phone && b.id) {
+            try {
+                await deleteDoc(doc(db, "bookings", b.id));
+            } catch(err) {
+                console.error(err);
+            }
+        }
+    }
 
     if (getSession() === phone) clearSession();
 
@@ -600,6 +636,7 @@ function wipeAllData() {
     if(!confirm("WARNING: This will delete ALL accounts, bookings, and custom schedules. Are you sure?")) return;
 
     localStorage.clear();
+    ownerClearAll(); // Clear Firebase too
     showToast("All data wiped completely.", "success");
 
     setTimeout(() => { window.location.reload(); }, 1500);
