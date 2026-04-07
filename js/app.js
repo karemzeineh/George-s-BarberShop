@@ -649,6 +649,8 @@ state.page = getSession() ? "dashboard" : "auth";
 render();
 
 // ── EXPORT FUNCTIONS TO GLOBAL WINDOW (Because of type="module") ──
+window.state = state;               // <-- ADDED THIS
+window.render = render;             // <-- ADDED THIS
 window.switchAuth = switchAuth;
 window.handleAuth = handleAuth;
 window.navigate = navigate;
