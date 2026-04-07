@@ -405,7 +405,7 @@ function renderTimeSelection() {
     const btns = allowedSlots.map(s => {
         const isB = booked.includes(s);
         const cls = isB ? "slot-btn booked" : (state.selectedSlot === s ? "slot-btn selected" : "slot-btn");
-        return `<button class="${cls}" ${isB ? "" : `onclick="state.selectedSlot='${s}';render()"`}>${s}</button>`;
+       return `<button class="${cls}" ${isB ? "" : `onclick="window.state.selectedSlot='${s}'; window.render()"`}>${s}</button>`;
     }).join("");
 
     return `
